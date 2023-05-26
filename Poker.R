@@ -40,12 +40,12 @@ get.hands <- function(players,deck){
 }
 
 #Function for getting five cards(deal)
-get.deal <- function(deck){
-  deal <- matrix(NA,ncol=10,nrow=1)
+get.flop <- function(deck){
+  flop <- matrix(NA,ncol=6,nrow=1)
   k <- 1
   
   #Loop for choosing each card
-  while(k < 6){
+  while(k < 4){
     #Random Suit
     suit <- sample(1:4,1)
     #Random Card
@@ -56,14 +56,41 @@ get.deal <- function(deck){
     }
     #Add card to player's hand
     else{
-      deal[2*k-1] <- suits[suit]
-      deal[2*k] <- deck[card,suit]
+      flop[2*k-1] <- suits[suit]
+      flop[2*k] <- deck[card,suit]
       deck[card,suit] <- NA
     }
     k <- k+1
   }
   
-  return(list(deal,deck))
+  return(list(flop,deck))
+}
+
+#Function for getting five cards(deal)
+get.turn.river <- function(deck){
+  turn.river <- matrix(NA,ncol=2,nrow=1)
+  k <- 1
+  
+  #Loop for choosing each card
+  while(k < 2){
+    #Random Suit
+    suit <- sample(1:4,1)
+    #Random Card
+    card <- sample(1:13,1)
+    #Check card wasn't taken already
+    if(is.na(deck[card,suit])){
+      k <- k-1
+    }
+    #Add card to player's hand
+    else{
+      turn.river[2*k-1] <- suits[suit]
+      turn.river[2*k] <- deck[card,suit]
+      deck[card,suit] <- NA
+    }
+    k <- k+1
+  }
+
+  return(list(turn.river,deck))
 }
 
 #Checks if a pair has occurred and gives the pair card
@@ -328,7 +355,7 @@ hand.rank <- function(deal,hand){
 #Function for simulating percentage of time an inputted hand
 #will win in general against a given number of players with randomly
 #chosen hands
-simulate.random.players <- function(deck,your.hand,players,N,print){
+simulate.preflop <- function(deck,your.hand,players,N,print){
   start.deck <- deck
   
   #Initialize data frame of hand results
@@ -351,9 +378,21 @@ simulate.random.players <- function(deck,your.hand,players,N,print){
     player.hands <- hole.cards.output[[1]]
     new.deck <- hole.cards.output[[2]]
     
-    #Deal out five community cards
-    community.cards.output <- get.deal(new.deck)
-    community.cards <- community.cards.output[[1]]
+    #Deal out the flop community cards
+    community.cards.output <- get.flop(new.deck)
+    community.cards <- flop <- community.cards.output[[1]]
+    new.deck <- community.cards.output[[2]]
+    
+    #Deal out the turn card
+    community.cards.output <- get.turn.river(new.deck)
+    turn <- community.cards.output[[1]]
+    community.cards <- cbind(community.cards,turn)
+    new.deck <- community.cards.output[[2]]
+    
+    #Deal out the river card
+    community.cards.output <- get.turn.river(new.deck)
+    river <- community.cards.output[[1]]
+    community.cards <- cbind(community.cards,river)
     new.deck <- community.cards.output[[2]]
     
     #Evaluate each hand
@@ -387,7 +426,173 @@ simulate.random.players <- function(deck,your.hand,players,N,print){
       hand.string <- paste(your.hand[2],",",your.hand[4]," off suit",sep="")
     }
     
-    message(sprintf("%s wins %.2f%% of the time against %i players",hand.string,100*results[1,4],players))
+    print(sprintf("%s wins %.2f%% of the time against %i players",hand.string,100*results[1,4],players))
+  }
+  
+  return(results)
+}
+
+#Function for simulating percentage of time an inputted hand
+#will win in general against a given number of players with randomly
+#chosen hands
+simulate.postflop <- function(deck,your.hand,flop,players,N,print){
+  start.deck <- deck
+  
+  #Initialize data frame of hand results
+  results <- as.data.frame(matrix(0,nrow=1,ncol=4))
+  names(results)<- c("Your Wins","Opponent Wins","Ties","Win %")
+  
+  #Remove your hand and flop from the deck
+  for(i in 1:2){
+    suit <- which(suits==your.hand[2*i-1])
+    card <- which(deck[,i]==your.hand[2*i])
+    start.deck[card,suit] <- NA
+  }
+  for(i in 1:3){
+    suit <- which(suits==flop[2*i-1])
+    card <- which(deck[,i]==flop[2*i])
+    start.deck[card,suit] <- NA
+  }
+  
+  #Simulation
+  for(i in 1:N){
+    new.deck <- start.deck
+    
+    #Deal hole cards to other players
+    hole.cards.output <- get.hands(players,new.deck)
+    player.hands <- hole.cards.output[[1]]
+    new.deck <- hole.cards.output[[2]]
+    
+    #Assign the flop as community cards
+    community.cards <- flop 
+    
+    #Deal out the turn card
+    community.cards.output <- get.turn.river(new.deck)
+    turn <- community.cards.output[[1]]
+    community.cards <- cbind(community.cards,turn)
+    new.deck <- community.cards.output[[2]]
+    
+    #Deal out the river card
+    community.cards.output <- get.turn.river(new.deck)
+    river <- community.cards.output[[1]]
+    community.cards <- cbind(community.cards,river)
+    new.deck <- community.cards.output[[2]]
+    
+    #Evaluate each hand
+    your.value <- hand.rank(community.cards,your.hand)[[2]]
+    
+    #Evaluate other player values
+    player.values <- rep(0,players)
+    for(j in 1:players){
+      player.values[j]<- hand.rank(community.cards,matrix(player.hands[j,],nrow=1))[[2]]
+    }
+    
+    if(max(player.values)<your.value){
+      results[1,1] <- results[1,1]+1
+    }
+    if(max(player.values)>your.value){
+      results[1,2] <- results[1,2]+1
+    }
+    if(max(player.values)==your.value){
+      results[1,3] <- results[1,3]+1
+    }
+  }
+  
+  #Calculate win %
+  results[1,4] <- results[1,1]/N
+  
+  #Prints out the results for a hand
+  if(print){
+    line1 <- paste("Number of opposing players:",players)
+    line2 <- paste("Your Hand: ",your.hand[2]," of ",your.hand[1],", ",your.hand[4]," of ",your.hand[3],sep="")
+    line3 <- paste("Flop: ",flop[2]," of ",flop[1],sep="")
+    line4 <- paste("      ",flop[4]," of ",flop[3],sep="")
+    line5 <- paste("      ",flop[6]," of ",flop[5],sep="")
+    line6 <- paste("Win Percentage: ",results[1,4]*100,"%",sep="")
+    
+    message(writeLines(c(line1,line2,line3,line4,line5,line6)))
+  }
+  
+  return(results)
+}
+
+#Function for simulating percentage of time an inputted hand
+#will win in general against a given number of players with randomly
+#chosen hands
+simulate.postturn <- function(deck,your.hand,flop,turn,players,N,print){
+  start.deck <- deck
+  
+  #Initialize data frame of hand results
+  results <- as.data.frame(matrix(0,nrow=1,ncol=4))
+  names(results)<- c("Your Wins","Opponent Wins","Ties","Win %")
+  
+  #Remove your hand and flop from the deck
+  for(i in 1:2){ #Your Hand
+    suit <- which(suits==your.hand[2*i-1])
+    card <- which(deck[,i]==your.hand[2*i])
+    start.deck[card,suit] <- NA
+  }
+  for(i in 1:3){ #Flop
+    suit <- which(suits==flop[2*i-1])
+    card <- which(deck[,i]==flop[2*i])
+    start.deck[card,suit] <- NA
+  } #Turn
+  suit <- which(suits==turn[2*i-1])
+  card <- which(deck[,i]==turn[2*i])
+  start.deck[card,suit] <- NA
+  
+  #Simulation
+  for(i in 1:N){
+    new.deck <- start.deck
+    
+    #Deal hole cards to other players
+    hole.cards.output <- get.hands(players,new.deck)
+    player.hands <- hole.cards.output[[1]]
+    new.deck <- hole.cards.output[[2]]
+    
+    #Assign the flop and turn as community cards
+    community.cards <- cbind(flop,turn) 
+    
+    #Deal out the river card
+    community.cards.output <- get.turn.river(new.deck)
+    river <- community.cards.output[[1]]
+    community.cards <- cbind(community.cards,river)
+    new.deck <- community.cards.output[[2]]
+    
+    #Evaluate each hand
+    your.value <- hand.rank(community.cards,your.hand)[[2]]
+    
+    #Evaluate other player values
+    player.values <- rep(0,players)
+    for(j in 1:players){
+      player.values[j]<- hand.rank(community.cards,matrix(player.hands[j,],nrow=1))[[2]]
+    }
+    
+    if(max(player.values)<your.value){
+      results[1,1] <- results[1,1]+1
+    }
+    if(max(player.values)>your.value){
+      results[1,2] <- results[1,2]+1
+    }
+    if(max(player.values)==your.value){
+      results[1,3] <- results[1,3]+1
+    }
+  }
+  
+  #Calculate win %
+  results[1,4] <- results[1,1]/N
+  
+  #Prints out the results for a hand
+  if(print){
+    line1 <- paste("Number of opposing players:",players)
+    line2 <- paste("Your Hand: ",your.hand[2]," of ",your.hand[1],", ",your.hand[4]," of ",your.hand[3],sep="")
+    line3 <- paste("Flop: ",flop[2]," of ",flop[1],sep="")
+    line4 <- paste("      ",flop[4]," of ",flop[3],sep="")
+    line5 <- paste("      ",flop[6]," of ",flop[5],sep="")
+    line6 <- paste("Turn: ",turn[2]," of ",turn[1],sep="")
+    line7 <- paste("Win Percentage: ",results[1,4]*100,"%",sep="")
+    
+    message(writeLines(c(line1,line2,line3,line4,line5,line6,line7)))
   }
   
   return(results)
@@ -407,7 +612,7 @@ export.data <- function(create.xlsx,players,N,print){
   for(i in 1:12){
     for(j in (i+1):13){
         your.hand <- matrix(c("Hearts",deck[14-i,1],"Hearts",deck[14-j,1]),nrow=1)
-        data <- simulate.random.players(deck,your.hand,players,N,print)
+        data <- simulate.preflop(deck,your.hand,players,N,print)
         percentages[i,j] <- data[,4]
     }
   }
@@ -415,7 +620,7 @@ export.data <- function(create.xlsx,players,N,print){
   for(i in 1:13){
     for(j in 1:i){
       your.hand <- matrix(c("Hearts",deck[14-i,1],"Spades",deck[14-j,1]),nrow=1)
-      data <- simulate.random.players(deck,your.hand,players,N,print)
+      data <- simulate.preflop(deck,your.hand,players,N,print)
       percentages[i,j] <- data[,4]
     }
   }
@@ -443,11 +648,19 @@ for(i in 1:4){
   deck[,i] <- c("2","3","4","5","6","7","8","9","10","J","Q","K","A")
 }
 
-create.xlsx <- F
-print <- F
+your.hand <- matrix(c("Hearts","A","Spades","K"),nrow=1)
+flop <- matrix(c("Hearts","K","Spades","A","Diamonds","5"),nrow=1)
+turn <- matrix(c("Clubs","A"),nrow=1)
+simulate.preflop(deck,your.hand,1,1000,print=T)
+simulate.postflop(deck,your.hand,flop,1,1000,print=T)
+simulate.postturn(deck,your.hand,flop,turn,1,1000,print=T)
 
-data <- export.data(create.xlsx,players,N,print)
 
+# Run function to export data to excel
+# create.xlsx <- F
+# print <- F
+# data <- export.data(create.xlsx,players,N,print)
+# write.xlsx(data,"Poker Percentages.xlsx",sheetName = "Range")
 
 
 
