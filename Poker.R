@@ -598,9 +598,77 @@ simulate.postturn <- function(deck,your.hand,flop,turn,players,N,print){
   return(results)
 }
 
+#Input all the players hands and simulate the rest of the hand
+#Returns each hand, each hand rank, and the winner of the hand
+simulate.one.hand <- function(deck,players=2){
+  start.deck <- deck
+  Nplayers <- nrow(players)
+  
+  #Initialize a data frame of all the cards
+  results <- as.data.frame(matrix(NA,nrow=Nplayers,ncol=16))
+  names(results) <-c("P.S1","P.C1","P.S2","P.C2","F.S1","F.C1","F.S2",
+                     "F.C2","F.S3","F.C3","T.S4","T.C4","R.S5",
+                     "R.C5","Rank","Winner")
+  row.names(results) <- c("Player 1","Player 2")
+  
+  #Remove player hands from the deck
+  for(j in 1:Nplayers){
+    for(i in 1:2){
+      suit <- which(suits==players[j,2*i-1])
+      card <- which(deck[,i]==players[j,2*i])
+      start.deck[card,suit] <- NA
+    }
+  }
+  
+  #Simulation hand
+  new.deck <- start.deck
+    
+  #Deal out the flop community cards
+  community.cards.output <- get.flop(new.deck)
+  community.cards <- flop <- community.cards.output[[1]]
+  new.deck <- community.cards.output[[2]]
+  
+  #Deal out the turn card
+  community.cards.output <- get.turn.river(new.deck)
+  turn <- community.cards.output[[1]]
+  community.cards <- cbind(community.cards,turn)
+  new.deck <- community.cards.output[[2]]
+    
+  #Deal out the river card
+  community.cards.output <- get.turn.river(new.deck)
+  river <- community.cards.output[[1]]
+  community.cards <- cbind(community.cards,river)
+  new.deck <- community.cards.output[[2]]
+  
+  #Input hands into results dataframe
+  for(i in 1:Nplayers){
+    results[i,1:14]<- cbind(matrix(players[i,],nrow=1),community.cards)
+  }
+
+  #Evaluate other player values
+  player.values <- rep(0,Nplayers)
+  for(j in 1:Nplayers){
+    player.eval <- hand.rank(community.cards,matrix(players[j,],nrow=1))
+    player.values[j]<- player.eval[[2]]
+    results[j,15]<- player.eval[[1]]
+  }
+  
+  #Evaluate winner
+  winner <- which(player.values==max(player.values))
+  if(length(winner)>1){
+    results[winner,16] <- 2
+  }
+  else{
+    results[winner,16] <- 1
+    results[-winner,16] <- 0
+  }
+  
+  return(results)
+}
+
 #Function for running N simulations for each possible hand against 
 #a given number of players
-export.data <- function(create.xlsx,players,N,print){
+percentages.data <- function(create.xlsx,players,N,print){
   start.time <- Sys.time()
   
   #Initialize a data frame of all the cards
@@ -634,11 +702,50 @@ export.data <- function(create.xlsx,players,N,print){
   return(percentages)
 }
 
+#Function for running N simulations for each possible hand against 
+#a given number of players
+deeplearning.data <- function(Nplayers=2,N=500,export=F){
+  start.time <- Sys.time()
+  
+  #Dataframe to export
+  #Initialize a data frame of all the cards
+  results <- as.data.frame(matrix(NA,nrow=N*Nplayers,ncol=16))
+  names(results) <-c("P.S1","P.C1","P.S2","P.C2","F.S1","F.C1","F.S2",
+                     "F.C2","F.S3","F.C3","T.S4","T.C4","R.S5",
+                     "R.C5","Rank","Winner")
+  playernames <- rep(NA,Nplayers)
+  for(i in 1:Nplayers){
+    playernames[i] <- paste("Player",sprintf("%i",i))
+  }
+  results.row.names <- rep(NA,Nplayers*N)
+  for(i in 1:N){
+    for(j in 1:Nplayers){
+      results.row.names[Nplayers*(i-1)+j] <- paste(playernames[j],sprintf("Game %i",i))
+    }
+  }
+  row.names(results) <- results.row.names
+  
+  for(i in 1:N){
+    #Get Player Hands
+    hands <- get.hands(Nplayers,deck)[[1]]
+    data <- simulate.one.hand(deck,hands)
+    results[(Nplayers*(i-1)+1):(Nplayers*i),] = data
+  }
+  
+  if(export){
+    write.csv(data,"deeplearning.csv")
+  }
+  
+  time <- Sys.time()-start.time
+  print(time)
+  return(results)
+}
+
 #Run the simulation
-N <- 100 #number of simulations
+N <- 10000 #number of simulations
 
 #Number of other players (1 minimum, 23 max)
-players <- 1
+players <- 2
 
 #Initialize a data frame of all the cards
 deck <- as.data.frame(matrix(NA,ncol=4,nrow=13))
@@ -648,20 +755,22 @@ for(i in 1:4){
   deck[,i] <- c("2","3","4","5","6","7","8","9","10","J","Q","K","A")
 }
 
-your.hand <- matrix(c("Hearts","A","Spades","K"),nrow=1)
-flop <- matrix(c("Hearts","K","Spades","A","Diamonds","5"),nrow=1)
-turn <- matrix(c("Clubs","A"),nrow=1)
-simulate.preflop(deck,your.hand,1,1000,print=T)
-simulate.postflop(deck,your.hand,flop,1,1000,print=T)
-simulate.postturn(deck,your.hand,flop,turn,1,1000,print=T)
-
+# your.hand <- matrix(c("Hearts","A","Spades","K"),nrow=1)
+# flop <- matrix(c("Hearts","K","Spades","A","Diamonds","5"),nrow=1)
+# turn <- matrix(c("Clubs","A"),nrow=1)
+# simulate.preflop(deck,your.hand,1,1000,print=T)
+# simulate.postflop(deck,your.hand,flop,1,1000,print=T)
+# simulate.postturn(deck,your.hand,flop,turn,1,1000,print=T)
 
 # Run function to export data to excel
 # create.xlsx <- F
 # print <- F
-# data <- export.data(create.xlsx,players,N,print)
+# data <- percentage.data(create.xlsx,players,N,print)
 # write.xlsx(data,"Poker Percentages.xlsx",sheetName = "Range")
 
+# Run function to export deeplearning data
+export <- T
+data <- deeplearning.data(N=N,export=export)
 
 
 
